@@ -13,7 +13,7 @@ $SSH_KEY_PATH = "$env:USERPROFILE\.ssh\upstream_deploy_key"
 $TF_RG        = "rg-tfstate-upstream"
 $TF_SA        = "sttfstateupstream001"
 $TF_CONTAINER = "tfstate"
-$LOCATION     = "eastus"
+$LOCATION     = "eastus2"
 
 Step "1 / 5 - Verifying Azure login"
 $account   = Invoke-AZ account show -o json | ConvertFrom-Json

@@ -12,7 +12,7 @@ variable "resource_group_name" {
 variable "location" {
   description = "Azure region for all resources"
   type        = string
-  default     = "East US"
+  default     = "East US 2"
 }
 
 variable "environment" {
@@ -35,5 +35,5 @@ variable "ssh_public_key" {
 variable "vm_size" {
   description = "Azure VM size"
   type        = string
-  default     = "Standard_D2s_v5"
+  default     = "Standard_B2s"
 }
