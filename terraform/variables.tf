@@ -35,5 +35,5 @@ variable "ssh_public_key" {
 variable "vm_size" {
   description = "Azure VM size"
   type        = string
-  default     = "Standard_B2ms"
+  default     = "Standard_D2s_v5"
 }
