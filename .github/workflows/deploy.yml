@@ -98,6 +98,13 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          # Verify the key is unencrypted; exit early with a clear message if not
+          if ! ssh-keygen -y -P "" -f ~/.ssh/id_rsa > /dev/null 2>&1; then
+            echo "ERROR: SSH_PRIVATE_KEY is passphrase-protected or invalid."
+            echo "GitHub Actions requires an unencrypted private key in the SSH_PRIVATE_KEY secret."
+            echo "Please replace the secret with an unencrypted key and re-run the workflow."
+            exit 1
+          fi
           ssh-keyscan -H "${{ matrix.vm_ip }}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Inject SSH public key to VM via Azure
@@ -107,7 +114,7 @@ jobs:
             -p "$ARM_CLIENT_SECRET" \
             --tenant "$ARM_TENANT_ID" \
             --output none
-          PUB_KEY=$(ssh-keygen -y -f ~/.ssh/id_rsa)
+          PUB_KEY=$(ssh-keygen -y -P "" -f ~/.ssh/id_rsa)
           VM_NAME=$(az vm list -d \
             --resource-group "rg-upstream-prod" \
             --query "[?contains(publicIps, '${{ matrix.vm_ip }}')].name" \
@@ -168,3 +175,37 @@ jobs:
           sleep 5
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no azureuser@${{ matrix.vm_ip }} \
             "curl -sf http://localhost:8501/_stcore/health && echo 'Health OK' || echo 'Health check failed'"
+
+  # ── Job 3: Verify Public Endpoint ───────────────────────────────────────────
+  verify:
+    name: Verify Public Endpoint
+    runs-on: ubuntu-latest
+    needs: [terraform, deploy]
+    permissions: {}
+
+    steps:
+      - name: Check load balancer health endpoint
+        run: |
+          LB_IP="${{ needs.terraform.outputs.lb_ip }}"
+          HEALTH_URL="http://${LB_IP}:8501/_stcore/health"
+          MAX_RETRIES=20
+          RETRY_DELAY=10
+          CURL_TIMEOUT=10
+          echo "Checking health endpoint: ${HEALTH_URL}"
+          SUCCESS=false
+          for i in {1..20}; do
+            echo "Attempt ${i}/${MAX_RETRIES}..."
+            if curl -sf --max-time "${CURL_TIMEOUT}" "${HEALTH_URL}"; then
+              echo "Health check passed!"
+              SUCCESS=true
+              break
+            fi
+            echo "Not healthy yet, waiting ${RETRY_DELAY}s..."
+            sleep "${RETRY_DELAY}"
+          done
+          if [ "$SUCCESS" != "true" ]; then
+            echo "ERROR: Health endpoint ${HEALTH_URL} did not become healthy after ${MAX_RETRIES} attempts ($((MAX_RETRIES * RETRY_DELAY))s total)."
+            echo "Diagnostics:"
+            curl -v --max-time "${CURL_TIMEOUT}" "${HEALTH_URL}" || true
+            exit 1
+          fi
