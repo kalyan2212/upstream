@@ -21,7 +21,7 @@ env:
   # Terraform variables
   TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   TF_VAR_ssh_public_key:  ${{ secrets.SSH_PUBLIC_KEY }}
-  TF_VAR_vm_size:         "Standard_B2s"
+  TF_VAR_vm_size:         "Standard_D2s_v3"
 
 jobs:
   # ── Job 1: Terraform ────────────────────────────────────────────────────────
