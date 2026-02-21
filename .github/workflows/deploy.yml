@@ -9,7 +9,9 @@ name: Deploy Upstream App to Azure
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - "main"
+      - "copilot/fix-scp-connection-error"
   workflow_dispatch:          # allow manual trigger from GitHub UI
 
 env:
@@ -91,20 +93,52 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          printf '%s' "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "${{ matrix.vm_ip }}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
+      - name: Inject SSH public key to VM via Azure
+        run: |
+          az login --service-principal \
+            -u "$ARM_CLIENT_ID" \
+            -p "$ARM_CLIENT_SECRET" \
+            --tenant "$ARM_TENANT_ID" \
+            --output none
+          PUB_KEY=$(ssh-keygen -y -f ~/.ssh/id_rsa)
+          VM_NAME=$(az vm list -d \
+            --resource-group "rg-upstream-prod" \
+            --query "[?contains(publicIps, '${{ matrix.vm_ip }}')].name" \
+            -o tsv | head -n 1)
+          if [ -z "$VM_NAME" ]; then
+            echo "ERROR: Could not find VM with IP ${{ matrix.vm_ip }} in resource group rg-upstream-prod"
+            exit 1
+          fi
+          az vm user update \
+            --resource-group "rg-upstream-prod" \
+            --name "$VM_NAME" \
+            --username azureuser \
+            --ssh-key-value "$PUB_KEY"
+
       - name: Wait for VM SSH to be ready
         run: |
+          SSH_READY=false
           for i in $(seq 1 20); do
-            ssh -i ~/.ssh/id_rsa -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
-              azureuser@${{ matrix.vm_ip }} "echo ready" && break
+            if ssh -i ~/.ssh/id_rsa -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+                 azureuser@${{ matrix.vm_ip }} "echo ready"; then
+              SSH_READY=true
+              break
+            fi
             echo "Attempt $i: SSH not ready yet, retrying in 15s..."
             sleep 15
           done
+          if [ "$SSH_READY" != "true" ]; then
+            echo "ERROR: SSH failed to connect after all attempts"
+            exit 1
+          fi
 
       - name: Copy app files to VM
         run: |
@@ -133,5 +167,5 @@ jobs:
       - name: Health check
         run: |
           sleep 5
-          ssh -o StrictHostKeyChecking=no azureuser@${{ matrix.vm_ip }} \
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no azureuser@${{ matrix.vm_ip }} \
             "curl -sf http://localhost:8501/_stcore/health && echo 'Health OK' || echo 'Health check failed'"
