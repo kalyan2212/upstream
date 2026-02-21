@@ -9,7 +9,9 @@ name: Deploy Upstream App to Azure
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - "main"
+      - "copilot/fix-scp-connection-error"
   workflow_dispatch:          # allow manual trigger from GitHub UI
 
 env:
